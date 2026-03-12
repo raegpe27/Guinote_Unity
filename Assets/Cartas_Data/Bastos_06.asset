@@ -1,0 +1,18 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 55c3d64e25cf8f641bf65f352e3aaa3c, type: 3}
+  m_Name: Bastos_06
+  m_EditorClassIdentifier: Assembly-CSharp::Carta
+  palo: 3
+  numero: 6
+  puntos: 0
+  imagenCarta: {fileID: -2547407477626231125, guid: e231e15b1274b894193d28dff84b3aa1, type: 3}

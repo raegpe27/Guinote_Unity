@@ -1,0 +1,18 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 55c3d64e25cf8f641bf65f352e3aaa3c, type: 3}
+  m_Name: Copas_11
+  m_EditorClassIdentifier: Assembly-CSharp::Carta
+  palo: 1
+  numero: 11
+  puntos: 2
+  imagenCarta: {fileID: 1339041459594345805, guid: 7925b578b4fe4a8419ad1873f264e083, type: 3}
