@@ -1,21 +1,30 @@
 using UnityEngine;
-using UnityEngine.UI; // Si usas UI, o SpriteRenderer para objetos 2D
+using UnityEngine.UI;
 
 public class CartaVisual : MonoBehaviour
 {
-    public Carta datosCarta; // Aquí guardaremos la información (As de Oros, etc.)
-    private SpriteRenderer spriteRenderer;
+    public Carta cartaLogica;
+    public Image imagenComponente;
 
     void Awake()
     {
-        spriteRenderer = GetComponent<SpriteRenderer>();
+        // Esto buscará automáticamente el componente Image en el mismo objeto
+        if (imagenComponente == null)
+        {
+            imagenComponente = GetComponent<Image>();
+        }
     }
 
-    // Este método "dibuja" la carta con sus datos
     public void ConfigurarCarta(Carta nuevaCarta)
     {
-        datosCarta = nuevaCarta;
-        spriteRenderer.sprite = nuevaCarta.imagenCarta;
-        gameObject.name = nuevaCarta.numero + " de " + nuevaCarta.palo;
+        if (nuevaCarta == null) return;
+        cartaLogica = nuevaCarta;
+
+        if (imagenComponente == null) imagenComponente = GetComponent<Image>();
+
+        if (imagenComponente != null && nuevaCarta.imagenCarta != null)
+        {
+            imagenComponente.sprite = nuevaCarta.imagenCarta;
+        }
     }
 }
