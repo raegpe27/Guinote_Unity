@@ -35,7 +35,9 @@ public class DraggableCarta : MonoBehaviour, IBeginDragHandler, IDragHandler, IE
         float tiempo = 0;
         Vector3 posIni = this.transform.position;
         Vector3 escalaIni = this.transform.localScale;
-        Vector3 escalaFin = new Vector3(0.7f, 0.7f, 1f);
+
+        // Aquí usamos la variable que acabamos de hacer pública
+        Vector3 escalaFin = mazoManager.escalaBaza;
 
         while (tiempo < duracion)
         {

@@ -26,6 +26,8 @@ public class MazoManager : MonoBehaviour
     public Transform posCompañero;
     public Transform posRival2;
 
+    public Vector3 escalaBaza = new Vector3(0.7f, 0.7f, 1f);
+
     public Carta cartaTriunfo;
 
     void Start()
@@ -60,6 +62,7 @@ public class MazoManager : MonoBehaviour
         muestraGO.transform.localRotation = Quaternion.Euler(0, 0, 90);
         muestraGO.transform.localPosition = new Vector3(-70, 0, 0);
         muestraGO.GetComponent<CartaVisual>().ConfigurarCarta(cartaTriunfo);
+        muestraGO.transform.localScale = new Vector3(0.6f, 0.6f, 1f);
         if (muestraGO.GetComponent<DraggableCarta>() != null) muestraGO.GetComponent<DraggableCarta>().enabled = false;
 
         GameObject mazoVisual = Instantiate(prefabCartaRival, zonaMazo);
@@ -99,22 +102,41 @@ public class MazoManager : MonoBehaviour
     {
         if (mazoPrincipal.Count <= 0) return;
 
+        // 1. Sacamos la lógica del mazo
         Carta logica = mazoPrincipal[0];
         mazoPrincipal.RemoveAt(0);
 
+        // 2. Creamos la carta visual (ahora prefab es un GameObject)
         GameObject nueva = Instantiate(prefab, contenedor);
         CartaVisual visual = nueva.GetComponent<CartaVisual>();
 
         if (visual != null)
         {
-            // 1. IMPORTANTE: Guardamos la lógica primero
-            visual.cartaLogica = logica;
+            // 3. Le pasamos los datos y configuramos los sprites
+            visual.ConfigurarCarta(logica);
 
-            // 2. Si es para el jugador, llamamos a ConfigurarCarta para "pintar" la imagen
-            if (contenedor == manoJugador)
+            // 4. Decidimos qué se ve (Cara o Reverso)
+            bool esJugador = (contenedor == manoJugador);
+
+            // Buscamos los hijos para encender/apagar según quién recibe la carta
+            foreach (Transform hijo in nueva.transform)
             {
-                visual.ConfigurarCarta(logica);
+                if (hijo.name.ToLower().Contains("reverso"))
+                    hijo.gameObject.SetActive(!esJugador);
+
+                if (hijo.name.ToLower().Contains("cara"))
+                    hijo.gameObject.SetActive(esJugador);
             }
+        }
+    }
+
+    // Función auxiliar para no repetir código de activar/desactivar hijos
+    private void SetEstadoCarta(GameObject carta, bool mostrarCara)
+    {
+        foreach (Transform hijo in carta.transform)
+        {
+            if (hijo.name.ToLower().Contains("reverso")) hijo.gameObject.SetActive(!mostrarCara);
+            if (hijo.name.ToLower().Contains("cara")) hijo.gameObject.SetActive(mostrarCara);
         }
     }
 
@@ -125,8 +147,13 @@ public class MazoManager : MonoBehaviour
             cartasEnBaza.Add(cartaGO);
         }
 
-        // Si el jugador es quien tira la carta (o la primera carta de la baza)
-        // iniciamos el turno de los demás
+        // Forzar Boca Arriba para el jugador (si no lo estuviera)
+        CartaVisual cv = cartaGO.GetComponent<CartaVisual>();
+        if (cv != null && cv.cartaLogica != null) cv.ConfigurarCarta(cv.cartaLogica);
+
+        // Mover a la posición del jugador en la cruz y escalar
+        StartCoroutine(AnimarCarta(cartaGO, posJugador.position, 0.4f));
+
         if (cartasEnBaza.Count == 1)
         {
             StartCoroutine(TurnoRivales());
@@ -135,38 +162,91 @@ public class MazoManager : MonoBehaviour
 
     IEnumerator TurnoRivales()
     {
-        // Cambiamos el orden para que siga el sentido del reloj o el que necesites
-        // Si quieres que después de ti tire el de tu derecha:
-        Transform[] manosRivales = { manoRival2, manoCompañero, manoRival1 };
-        Transform[] posicionesBaza = { posRival2, posCompañero, posRival1 };
+        // Listas emparejadas: Mano -> Su sitio -> Su giro en la cruz
+        Transform[] manosRivales = { manoRival1, manoCompañero, manoRival2 };
+        Transform[] posicionesBaza = { posRival1, posCompañero, posRival2 };
+        float[] giros = { 90f, 0f, 90f }; // Rival 1 y 2 giran 90 grados
 
         for (int i = 0; i < manosRivales.Length; i++)
         {
-            yield return new WaitForSeconds(0.7f);
+            yield return new WaitForSeconds(0.8f);
 
             if (manosRivales[i].childCount > 0)
             {
                 GameObject cartaRival = manosRivales[i].GetChild(0).gameObject;
-                CartaVisual cv = cartaRival.GetComponent<CartaVisual>();
 
-                // FORZAR BOCA ARRIBA:
-                if (cv != null && cv.cartaLogica != null)
+                CartaVisual cv = cartaRival.GetComponent<CartaVisual>();
+                if (cv != null)
                 {
-                    cv.ConfigurarCarta(cv.cartaLogica);
-                    // Si el prefab tiene un objeto "Dorso" hijo que lo tapa, lo desactivamos:
-                    Transform dorso = cartaRival.transform.Find("Dorso");
-                    if (dorso != null) dorso.gameObject.SetActive(false);
+                    cv.ConfigurarCarta(cv.cartaLogica); // Esto pone la imagen real
+
+                    // Buscar el reverso sin importar si se llama "reverso" o "Reverso"
+                    foreach (Transform hijo in cartaRival.transform)
+                    {
+                        if (hijo.name.ToLower().Contains("reverso"))
+                        {
+                            hijo.gameObject.SetActive(false);
+                        }
+                        if (hijo.name.ToLower().Contains("cara"))
+                        {
+                            hijo.gameObject.SetActive(true); // Asegúrate de encender la cara
+                        }
+                    }
                 }
 
-                StartCoroutine(AnimarCarta(cartaRival, posicionesBaza[i].position, 0.4f));
+                // Mover a su posición asignada con su giro y tamaño uniforme
+                StartCoroutine(AnimarCartaConGiro(cartaRival, posicionesBaza[i].position, 0.4f, giros[i]));
 
                 yield return new WaitForSeconds(0.4f);
+
                 cartaRival.transform.SetParent(zonaBaza);
                 if (!cartasEnBaza.Contains(cartaRival)) cartasEnBaza.Add(cartaRival);
             }
         }
 
         if (cartasEnBaza.Count == 4) Invoke("FinalizarBaza", 1.5f);
+    }
+
+    // Nueva versión de AnimarCarta que también controla la Escala (Tamaño)
+    public IEnumerator AnimarCarta(GameObject carta, Vector3 destino, float duracion)
+    {
+        float tiempo = 0;
+        Vector3 posIni = carta.transform.position;
+        Vector3 escalaIni = carta.transform.localScale;
+
+        while (tiempo < duracion)
+        {
+            carta.transform.position = Vector3.Lerp(posIni, destino, tiempo / duracion);
+            // Escalamos hacia el tamaño uniforme de la baza
+            carta.transform.localScale = Vector3.Lerp(escalaIni, escalaBaza, tiempo / duracion);
+
+            tiempo += Time.deltaTime;
+            yield return null;
+        }
+        carta.transform.position = destino;
+        carta.transform.localScale = escalaBaza;
+    }
+
+    public IEnumerator AnimarCartaConGiro(GameObject carta, Vector3 destino, float duracion, float giroZFinal)
+    {
+        float tiempo = 0;
+        Vector3 posIni = carta.transform.position;
+        Vector3 escalaIni = carta.transform.localScale;
+        Quaternion rotIni = carta.transform.rotation;
+        Quaternion rotFin = Quaternion.Euler(0, 0, giroZFinal);
+
+        while (tiempo < duracion)
+        {
+            carta.transform.position = Vector3.Lerp(posIni, destino, tiempo / duracion);
+            carta.transform.localScale = Vector3.Lerp(escalaIni, escalaBaza, tiempo / duracion);
+            carta.transform.rotation = Quaternion.Lerp(rotIni, rotFin, tiempo / duracion);
+
+            tiempo += Time.deltaTime;
+            yield return null;
+        }
+        carta.transform.position = destino;
+        carta.transform.localScale = escalaBaza;
+        carta.transform.rotation = rotFin;
     }
 
     void FinalizarBaza()
@@ -180,24 +260,6 @@ public class MazoManager : MonoBehaviour
     {
         Transform[] orden = { manoJugador, manoRival1, manoCompañero, manoRival2 };
         foreach (Transform j in orden) RepartirCarta(j, (j == manoJugador) ? cartaPrefab : prefabCartaRival);
-    }
-
-    public IEnumerator AnimarCarta(GameObject carta, Vector3 destino, float duracion)
-    {
-        float tiempo = 0;
-        Vector3 posIni = carta.transform.position;
-        Vector3 escalaIni = carta.transform.localScale;
-        Vector3 escalaFin = new Vector3(0.7f, 0.7f, 1f); // Reducción
-
-        while (tiempo < duracion)
-        {
-            carta.transform.position = Vector3.Lerp(posIni, destino, tiempo / duracion);
-            carta.transform.localScale = Vector3.Lerp(escalaIni, escalaFin, tiempo / duracion);
-            tiempo += Time.deltaTime;
-            yield return null;
-        }
-        carta.transform.position = destino;
-        carta.transform.localScale = escalaFin;
     }
 
     public IEnumerator RecogerBaza(Transform ganador)
