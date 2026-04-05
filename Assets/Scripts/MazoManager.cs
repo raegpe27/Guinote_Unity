@@ -1,22 +1,24 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class MazoManager : MonoBehaviour
 {
     public List<Carta> todasLasCartas;
     private List<Carta> mazoPrincipal = new List<Carta>();
     private List<GameObject> cartasEnBaza = new List<GameObject>();
+    private List<int> indicesJugadoresEnBaza = new List<int>();
 
     [Header("Configuración Visual")]
     public GameObject cartaPrefab;
     public GameObject prefabCartaRival;
 
     [Header("Contenedores")]
-    public Transform manoJugador;
-    public Transform manoRival1;
-    public Transform manoCompañero;
-    public Transform manoRival2;
+    public Transform manoJugador;    // ID 0
+    public Transform manoRival1;     // ID 1 (Derecha)
+    public Transform manoCompañero;  // ID 2 (Frente)
+    public Transform manoRival2;     // ID 3 (Izquierda)
     public Transform zonaMazo;
     public Transform zonaBaza;
 
@@ -26,16 +28,207 @@ public class MazoManager : MonoBehaviour
     public Transform posCompañero;
     public Transform posRival2;
 
-    public Vector3 escalaBaza = new Vector3(0.7f, 0.7f, 1f);
+    [Header("Logica de Juego")]
+    public Carta.Palo paloTriunfo;
+    private Carta.Palo paloSalida;
+    private bool primeraCartaDeBaza = true;
 
+    [Header("Control de Turnos")]
+    public int turnoActual;
+    public bool puedeJugar = false;
+
+    public Vector3 escalaBaza = new Vector3(0.7f, 0.7f, 1f);
     public Carta cartaTriunfo;
 
     void Start()
     {
         InicializarMazo();
-        Barajar();
-        RepartirPartidaInicial();
-        DefinirTriunfo();
+
+        if (mazoPrincipal.Count > 0)
+        {
+            Barajar();
+            DefirnirTriunfo();
+            StartCoroutine(PrepararPartida());
+        }
+        else
+        {
+            Debug.LogError("¡No has asignado las cartas en el Inspector!");
+        }
+    }
+
+    IEnumerator PrepararPartida()
+    {
+        yield return StartCoroutine(RepartirPartidaInicialAnimado());
+        // El primer turno de la partida es aleatorio
+        int primerTurno = Random.Range(0, 4);
+        SetTurno(primerTurno);
+    }
+
+    public void SetTurno(int nuevoTurno)
+    {
+        // Detenemos cualquier rutina de IA previa para evitar que dos IAs jueguen a la vez
+        StopCoroutine("TurnoIA");
+        
+        turnoActual = nuevoTurno;
+
+        if (turnoActual == 0)
+        {
+            puedeJugar = true;
+            Debug.Log("Es tu turno (Jugador).");
+        }
+        else
+        {
+            puedeJugar = false;
+            Debug.Log("Turno del Jugador " + turnoActual);
+            StartCoroutine(TurnoIA(turnoActual));
+        }
+    }
+
+    public void CartaLanzada(GameObject cartaGO)
+    {
+        if (!cartasEnBaza.Contains(cartaGO))
+        {
+            cartasEnBaza.Add(cartaGO);
+            indicesJugadoresEnBaza.Add(turnoActual);
+        }
+
+        CartaVisual cv = cartaGO.GetComponent<CartaVisual>();
+        if (cv != null && cv.cartaLogica != null)
+        {
+            cv.ConfigurarCarta(cv.cartaLogica);
+            if (primeraCartaDeBaza)
+            {
+                paloSalida = cv.cartaLogica.palo;
+                primeraCartaDeBaza = false;
+            }
+        }
+
+        // Sacamos la carta de la mano y la ponemos en la zona de baza (padre neutro)
+        cartaGO.transform.SetParent(zonaBaza, true);
+
+        Transform destino = ObtenerPosicionBaza(turnoActual);
+
+        // Giro 0 para que el jugador las vea siempre rectas
+        float giro = 0f;
+
+        StartCoroutine(AnimarCartaConGiro(cartaGO, destino.position, 0.4f, giro));
+
+        if (cartasEnBaza.Count < 4)
+        {
+            int siguiente = (turnoActual + 1) % 4;
+            StartCoroutine(EsperarSiguienteTurno(siguiente));
+        }
+        else
+        {
+            StartCoroutine(EsperarDeterminarGanador());
+        }
+    }
+
+    IEnumerator EsperarSiguienteTurno(int proximo)
+    {
+        yield return new WaitForSeconds(0.6f);
+        SetTurno(proximo);
+    }
+
+    IEnumerator EsperarDeterminarGanador()
+    {
+        yield return new WaitForSeconds(1.0f);
+        DeterminarGanadorBaza();
+    }
+
+    void DeterminarGanadorBaza()
+    {
+        int indiceGanadorEnBaza = 0;
+        GameObject mejorCartaGO = cartasEnBaza[0];
+        Carta mejorLogica = mejorCartaGO.GetComponent<CartaVisual>().cartaLogica;
+
+        for (int i = 1; i < cartasEnBaza.Count; i++)
+        {
+            Carta nuevaLogica = cartasEnBaza[i].GetComponent<CartaVisual>().cartaLogica;
+
+            if (nuevaLogica.palo == paloTriunfo && mejorLogica.palo != paloTriunfo)
+            {
+                mejorCartaGO = cartasEnBaza[i];
+                mejorLogica = nuevaLogica;
+                indiceGanadorEnBaza = i;
+            }
+            else if (nuevaLogica.palo == mejorLogica.palo)
+            {
+                if (nuevaLogica.puntos > mejorLogica.puntos ||
+                   (nuevaLogica.puntos == mejorLogica.puntos && nuevaLogica.numero > mejorLogica.numero))
+                {
+                    mejorCartaGO = cartasEnBaza[i];
+                    mejorLogica = nuevaLogica;
+                    indiceGanadorEnBaza = i;
+                }
+            }
+        }
+
+        int idGanadorReal = indicesJugadoresEnBaza[indiceGanadorEnBaza];
+        StartCoroutine(LimpiarYPrepararSiguiente(idGanadorReal));
+    }
+
+    // --- CORRECCIÓN AQUÍ ---
+    IEnumerator LimpiarYPrepararSiguiente(int ganadorID)
+    {
+        yield return new WaitForSeconds(1.0f);
+        
+        // 1. Limpiamos las cartas físicas de la mesa
+        foreach (GameObject c in cartasEnBaza) Destroy(c);
+        cartasEnBaza.Clear();
+        indicesJugadoresEnBaza.Clear();
+        primeraCartaDeBaza = true;
+
+        // 2. Si quedan cartas en el mazo, robamos
+        if (mazoPrincipal.Count > 0)
+        {
+            // ESPERAMOS a que la secuencia de robo termine antes de seguir
+            yield return StartCoroutine(SecuenciaRobo(ganadorID));
+        }
+
+        // 3. Pequeña pausa extra para que el jugador asimile quién ganó
+        yield return new WaitForSeconds(0.5f);
+
+        // 4. AHORA SÍ, asignamos el turno al ganador de la baza
+        Debug.Log("Baza finalizada. El ganador " + ganadorID + " abre la siguiente.");
+        SetTurno(ganadorID);
+    }
+
+    IEnumerator SecuenciaRobo(int ganadorID)
+    {
+        // El orden de robo siempre empieza por el que ganó la baza
+        for (int i = 0; i < 4; i++)
+        {
+            int idActual = (ganadorID + i) % 4;
+            Transform contenedor = ObtenerContenedorMano(idActual);
+
+            if (mazoPrincipal.Count > 0)
+            {
+                // Esperamos a que cada carta llegue a la mano antes de repartir la siguiente (o lo hacemos rápido)
+                yield return StartCoroutine(AnimarRoboCarta(contenedor, (idActual == 0) ? cartaPrefab : prefabCartaRival, idActual == 0));
+                yield return new WaitForSeconds(0.1f);
+            }
+        }
+    }
+
+    Transform ObtenerContenedorMano(int id)
+    {
+        switch (id)
+        {
+            case 0: return manoJugador;
+            case 1: return manoRival1;
+            case 2: return manoCompañero;
+            case 3: return manoRival2;
+            default: return null;
+        }
+    }
+
+    Transform ObtenerPosicionBaza(int id)
+    {
+        if (id == 0) return posJugador;
+        if (id == 1) return posRival1;
+        if (id == 2) return posCompañero;
+        return posRival2;
     }
 
     void InicializarMazo() { mazoPrincipal = new List<Carta>(todasLasCartas); }
@@ -51,86 +244,49 @@ public class MazoManager : MonoBehaviour
         }
     }
 
-    public void DefinirTriunfo()
+    void DefirnirTriunfo()
     {
         if (mazoPrincipal.Count <= 0) return;
         cartaTriunfo = mazoPrincipal[0];
         mazoPrincipal.RemoveAt(0);
         mazoPrincipal.Add(cartaTriunfo);
+        paloTriunfo = cartaTriunfo.palo;
 
         GameObject muestraGO = Instantiate(cartaPrefab, zonaMazo);
+        CartaVisual visual = muestraGO.GetComponent<CartaVisual>();
+        if (visual != null) visual.ConfigurarCarta(cartaTriunfo);
+
         muestraGO.transform.localRotation = Quaternion.Euler(0, 0, 90);
         muestraGO.transform.localPosition = new Vector3(-70, 0, 0);
-        muestraGO.GetComponent<CartaVisual>().ConfigurarCarta(cartaTriunfo);
         muestraGO.transform.localScale = new Vector3(0.6f, 0.6f, 1f);
+
         if (muestraGO.GetComponent<DraggableCarta>() != null) muestraGO.GetComponent<DraggableCarta>().enabled = false;
+        SetEstadoCarta(muestraGO, true);
 
         GameObject mazoVisual = Instantiate(prefabCartaRival, zonaMazo);
         muestraGO.transform.SetAsFirstSibling();
         mazoVisual.transform.SetAsLastSibling();
-
-        // 1. Desactivar el script de arrastre (ya lo tenías)
-        if (muestraGO.GetComponent<DraggableCarta>() != null)
-            muestraGO.GetComponent<DraggableCarta>().enabled = false;
-
-        // 2. NUEVO: Desactivar la detección de ratón en el CanvasGroup
-        CanvasGroup cg = muestraGO.GetComponent<CanvasGroup>();
-        if (cg != null)
-        {
-            cg.blocksRaycasts = false; // El ratón la atraviesa
-            cg.interactable = false;   // No responde a clics
-        }
-
-        // 3. NUEVO: Desactivar Raycast Target en la imagen directamente
-        if (muestraGO.GetComponent<UnityEngine.UI.Image>() != null)
-            muestraGO.GetComponent<UnityEngine.UI.Image>().raycastTarget = false;
     }
 
-    public void RepartirPartidaInicial()
+    public IEnumerator RepartirPartidaInicialAnimado()
     {
-        Transform[] jugadores = { manoJugador, manoRival2, manoCompañero, manoRival1 };
+        int[] ordenReparto = { 0, 1, 2, 3 };
+
         for (int ronda = 0; ronda < 2; ronda++)
         {
-            foreach (Transform j in jugadores)
+            foreach (int id in ordenReparto)
             {
-                for (int i = 0; i < 3; i++) RepartirCarta(j, (j == manoJugador) ? cartaPrefab : prefabCartaRival);
+                Transform contenedor = ObtenerContenedorMano(id);
+                for (int i = 0; i < 3; i++)
+                {
+                    StartCoroutine(AnimarRoboCarta(contenedor, (id == 0) ? cartaPrefab : prefabCartaRival, id == 0));
+                    yield return new WaitForSeconds(0.15f);
+                }
+                yield return new WaitForSeconds(0.2f);
             }
         }
     }
 
-    public void RepartirCarta(Transform contenedor, GameObject prefab)
-    {
-        if (mazoPrincipal.Count <= 0) return;
-
-        // 1. Sacamos la lógica del mazo
-        Carta logica = mazoPrincipal[0];
-        mazoPrincipal.RemoveAt(0);
-
-        // 2. Creamos la carta visual (ahora prefab es un GameObject)
-        GameObject nueva = Instantiate(prefab, contenedor);
-        CartaVisual visual = nueva.GetComponent<CartaVisual>();
-
-        if (visual != null)
-        {
-            // 3. Le pasamos los datos y configuramos los sprites
-            visual.ConfigurarCarta(logica);
-
-            // 4. Decidimos qué se ve (Cara o Reverso)
-            bool esJugador = (contenedor == manoJugador);
-
-            // Buscamos los hijos para encender/apagar según quién recibe la carta
-            foreach (Transform hijo in nueva.transform)
-            {
-                if (hijo.name.ToLower().Contains("reverso"))
-                    hijo.gameObject.SetActive(!esJugador);
-
-                if (hijo.name.ToLower().Contains("cara"))
-                    hijo.gameObject.SetActive(esJugador);
-            }
-        }
-    }
-
-    // Función auxiliar para no repetir código de activar/desactivar hijos
     private void SetEstadoCarta(GameObject carta, bool mostrarCara)
     {
         foreach (Transform hijo in carta.transform)
@@ -140,91 +296,17 @@ public class MazoManager : MonoBehaviour
         }
     }
 
-    public void CartaLanzada(GameObject cartaGO)
+    IEnumerator TurnoIA(int indiceIA)
     {
-        if (!cartasEnBaza.Contains(cartaGO))
+        yield return new WaitForSeconds(1.2f);
+        Transform manoIA = ObtenerContenedorMano(indiceIA);
+
+        if (manoIA != null && manoIA.childCount > 0)
         {
-            cartasEnBaza.Add(cartaGO);
+            GameObject cartaIA = manoIA.GetChild(0).gameObject;
+            SetEstadoCarta(cartaIA, true);
+            CartaLanzada(cartaIA);
         }
-
-        // Forzar Boca Arriba para el jugador (si no lo estuviera)
-        CartaVisual cv = cartaGO.GetComponent<CartaVisual>();
-        if (cv != null && cv.cartaLogica != null) cv.ConfigurarCarta(cv.cartaLogica);
-
-        // Mover a la posición del jugador en la cruz y escalar
-        StartCoroutine(AnimarCarta(cartaGO, posJugador.position, 0.4f));
-
-        if (cartasEnBaza.Count == 1)
-        {
-            StartCoroutine(TurnoRivales());
-        }
-    }
-
-    IEnumerator TurnoRivales()
-    {
-        // Listas emparejadas: Mano -> Su sitio -> Su giro en la cruz
-        Transform[] manosRivales = { manoRival1, manoCompañero, manoRival2 };
-        Transform[] posicionesBaza = { posRival1, posCompañero, posRival2 };
-        float[] giros = { 90f, 0f, 90f }; // Rival 1 y 2 giran 90 grados
-
-        for (int i = 0; i < manosRivales.Length; i++)
-        {
-            yield return new WaitForSeconds(0.8f);
-
-            if (manosRivales[i].childCount > 0)
-            {
-                GameObject cartaRival = manosRivales[i].GetChild(0).gameObject;
-
-                CartaVisual cv = cartaRival.GetComponent<CartaVisual>();
-                if (cv != null)
-                {
-                    cv.ConfigurarCarta(cv.cartaLogica); // Esto pone la imagen real
-
-                    // Buscar el reverso sin importar si se llama "reverso" o "Reverso"
-                    foreach (Transform hijo in cartaRival.transform)
-                    {
-                        if (hijo.name.ToLower().Contains("reverso"))
-                        {
-                            hijo.gameObject.SetActive(false);
-                        }
-                        if (hijo.name.ToLower().Contains("cara"))
-                        {
-                            hijo.gameObject.SetActive(true); // Asegúrate de encender la cara
-                        }
-                    }
-                }
-
-                // Mover a su posición asignada con su giro y tamaño uniforme
-                StartCoroutine(AnimarCartaConGiro(cartaRival, posicionesBaza[i].position, 0.4f, giros[i]));
-
-                yield return new WaitForSeconds(0.4f);
-
-                cartaRival.transform.SetParent(zonaBaza);
-                if (!cartasEnBaza.Contains(cartaRival)) cartasEnBaza.Add(cartaRival);
-            }
-        }
-
-        if (cartasEnBaza.Count == 4) Invoke("FinalizarBaza", 1.5f);
-    }
-
-    // Nueva versión de AnimarCarta que también controla la Escala (Tamaño)
-    public IEnumerator AnimarCarta(GameObject carta, Vector3 destino, float duracion)
-    {
-        float tiempo = 0;
-        Vector3 posIni = carta.transform.position;
-        Vector3 escalaIni = carta.transform.localScale;
-
-        while (tiempo < duracion)
-        {
-            carta.transform.position = Vector3.Lerp(posIni, destino, tiempo / duracion);
-            // Escalamos hacia el tamaño uniforme de la baza
-            carta.transform.localScale = Vector3.Lerp(escalaIni, escalaBaza, tiempo / duracion);
-
-            tiempo += Time.deltaTime;
-            yield return null;
-        }
-        carta.transform.position = destino;
-        carta.transform.localScale = escalaBaza;
     }
 
     public IEnumerator AnimarCartaConGiro(GameObject carta, Vector3 destino, float duracion, float giroZFinal)
@@ -240,7 +322,6 @@ public class MazoManager : MonoBehaviour
             carta.transform.position = Vector3.Lerp(posIni, destino, tiempo / duracion);
             carta.transform.localScale = Vector3.Lerp(escalaIni, escalaBaza, tiempo / duracion);
             carta.transform.rotation = Quaternion.Lerp(rotIni, rotFin, tiempo / duracion);
-
             tiempo += Time.deltaTime;
             yield return null;
         }
@@ -249,37 +330,35 @@ public class MazoManager : MonoBehaviour
         carta.transform.rotation = rotFin;
     }
 
-    void FinalizarBaza()
+    public IEnumerator AnimarRoboCarta(Transform contenedor, GameObject prefab, bool esJugador)
     {
-        foreach (GameObject c in cartasEnBaza) Destroy(c);
-        cartasEnBaza.Clear();
-        RobarTodos();
-    }
+        if (mazoPrincipal.Count <= 0) yield break;
 
-    void RobarTodos()
-    {
-        Transform[] orden = { manoJugador, manoRival1, manoCompañero, manoRival2 };
-        foreach (Transform j in orden) RepartirCarta(j, (j == manoJugador) ? cartaPrefab : prefabCartaRival);
-    }
+        Carta logica = mazoPrincipal[0];
+        mazoPrincipal.RemoveAt(0);
 
-    public IEnumerator RecogerBaza(Transform ganador)
-    {
-        yield return new WaitForSeconds(1.0f);
+        GameObject nueva = Instantiate(prefab, zonaMazo.position, contenedor.rotation, contenedor);
 
-        foreach (GameObject carta in cartasEnBaza) // Asegúrate que diga 'in', no 'en'
+        CartaVisual visual = nueva.GetComponent<CartaVisual>();
+        if (visual != null) visual.ConfigurarCarta(logica);
+
+        SetEstadoCarta(nueva, esJugador);
+
+        float duracion = 0.4f;
+        float tiempo = 0;
+        Vector3 posIni = nueva.transform.position;
+
+        while (tiempo < duracion)
         {
-            if (carta != null)
-            {
-                StartCoroutine(AnimarCarta(carta, ganador.position, 0.5f));
-            }
+            nueva.transform.position = Vector3.Lerp(posIni, contenedor.position, tiempo / duracion);
+            tiempo += Time.deltaTime;
+            yield return null;
         }
 
-        yield return new WaitForSeconds(0.5f);
+        nueva.transform.localPosition = Vector3.zero;
+        nueva.transform.localRotation = Quaternion.identity;
 
-        foreach (GameObject carta in cartasEnBaza)
-        {
-            if (carta != null) Destroy(carta);
-        }
-        cartasEnBaza.Clear();
+        Canvas.ForceUpdateCanvases();
+        LayoutRebuilder.ForceRebuildLayoutImmediate(contenedor.GetComponent<RectTransform>());
     }
 }
